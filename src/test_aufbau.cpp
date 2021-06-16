@@ -226,7 +226,7 @@ void loop()
         befAcc = digitalRead(ACC);
         if ((befAcc != aftAcc) && (befAcc == 0)) //Wenn ungleich zuvor und gedrückt
         {
-            buttonFlagAcc = true;
+            
             pressTimeAcc = millis();
         }
         if (buttonFlagAcc)
