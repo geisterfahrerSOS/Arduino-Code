@@ -9,7 +9,7 @@
 #include <Servo.h>
 
 //////////////////////////////////////// Schüsse
-int schussMap[5] = {5, 4, 0, 2, 3};                                  //12340
+int schussMap[5] = {12, 13, 0, 2, 14};                               //67345                           //12340
 float treffer[5][2] = {{0, -1}, {0, -1}, {0, -1}, {0, -1}, {0, -1}}; //{Platte, Zeit}
 int anzahl = 0;                                                      //anzahl der Schüsse
 ///////////////////Server Kommunikation
@@ -19,7 +19,7 @@ bool shotListener = false;
 int athleteId = -1;
 String art = "test";
 
-String host = "192.168.178.61"; //Server Adress
+String host = "192.168.43.237"; //Server Adress
 
 void sendShots(float shots[5][2])
 {
@@ -57,7 +57,7 @@ String sendRequest(String request)
         String payload = http.getString(); //Get the response payload
 
         //Serial.println(httpCode); //Print HTTP return code
-        Serial.println(payload); //Print request response payload
+        //Serial.println(payload); //Print request response payload
 
         http.end(); //Close connection
         if (httpCode == 200)
@@ -98,34 +98,34 @@ int sendRequestInt(String request)
 }
 
 //////////////////////////////Wlan Verbindung
-#define WIFI_SSID "PG6WLAN"
-#define WIFI_PASS "Turbolader24$$"
+//#define WIFI_SSID "PG6WLAN"
+//#define WIFI_PASS "Turbolader24$$"
 
 //#define WIFI_SSID "Vodafone-FBF4"
 //#define WIFI_PASS "atqNqPcMgqAXgd2P"
 
-//#define WIFI_SSID "moto g(6) 5401"
-//#define WIFI_PASS "the1and0nli"
+#define WIFI_SSID "moto g(6) 5401"
+#define WIFI_PASS "the1and0nli"
 /////////////////////////Accelerometer
-#define MPU_ADDR 0x67 //ACHTUNG!!! Adresser noch ändern I2C address of the MPU-6050. If AD0 pin is set to HIGH, the I2C address will be 0x69.
+#define MPU_ADDR 0x68 //ACHTUNG!!! Adresser noch ändern I2C address of the MPU-6050. If AD0 pin is set to HIGH, the I2C address will be 0x69.
 
 int16_t accelerometer_x, accelerometer_y, accelerometer_z; // variables for accelerometer raw data
 int16_t accelerometer_x_old, accelerometer_y_old, accelerometer_z_old;
-
-int schwelle = 800; //Auslöseschwelle für einen Fehler
+int stateFehler = 0;
+int schwelle = 3000; //Auslöseschwelle für einen Fehler
 int accTime = 0;
 /////////////////////Button Auslösen
 int bef[5];
 int aft[5];
 int pressTime[5] = {0, 0, 0, 0, 0};
 ///////////////////Servo
-#define SERVO 11
+#define SERVO 16
 Servo myServo;
 void servoReset()
 {
-    myServo.write(110);
+    myServo.write(0);
     delay(1000);
-    myServo.write(30);
+    myServo.write(120);
     delay(1000);
 }
 void setup()
@@ -137,7 +137,7 @@ void setup()
     }
     /////////////////////Servo init
     myServo.attach(SERVO);
-    myServo.write(30);
+    myServo.write(120);
     //Begin I2C
     Wire.begin();
     Wire.beginTransmission(MPU_ADDR); // Begins a transmission to the I2C slave (GY-521 board)
@@ -180,7 +180,6 @@ void loop()
         {
             //stop shooting collection
             shotListener = false;
-            servoReset(); //Platten zurückstellen
         }
         requestTime = millis(); //Zeit für erneute Server Abfrage
     }
@@ -188,53 +187,111 @@ void loop()
     {
         if (millis() - startShooting > 60000) //Nach 60 sekunden inaktivität stoppe das Schießen
         {
-            sendRequest("setAction?mode=id&value=" + String(athleteId) + "&action=stop"); //sende an den Servo "stop"
-            shotListener = false;                                                         //Höre nicht mehr auf das Schießen
+            sendShots(treffer);
+            sendRequest("setAction?mode=id&value=" + String(athleteId) + "&action=stop");
+            servoReset(); //Platten zurückstellen
+            anzahl = 0;
+            //Zurückgesetzt
+            for (int j = 0; j < 5; j++)
+            {
+                treffer[j][0] = 0;
+                treffer[j][1] = -1;
+            } //Höre nicht mehr auf das Schießen
         }
         ///////////////////////////////Fehler
         if (millis() - accTime > 30)
         {
             Wire.beginTransmission(MPU_ADDR);
-            Wire.write(0x3B);                        // starting with register 0x3B (ACCEL_XOUT_H) [MPU-6000 and MPU-6050 Register Map and Descriptions Revision 4.2, p.40]
-            Wire.endTransmission(false);             // the parameter indicates that the Arduino will send a restart. As a result, the connection is kept active.
-            Wire.requestFrom(MPU_ADDR, 7 * 2, true); // request a total of 7*2=14 registers
+            Wire.write(0x3B);                                 // starting with register 0x3B (ACCEL_XOUT_H) [MPU-6000 and MPU-6050 Register Map and Descriptions Revision 4.2, p.40]
+            Wire.endTransmission(false);                      // the parameter indicates that the Arduino will send a restart. As a result, the connection is kept active.
+            Wire.requestFrom(MPU_ADDR, 7 * 2, true);          // request a total of 7*2=14 registers
             accelerometer_x = Wire.read() << 8 | Wire.read(); // reading registers: 0x3B (ACCEL_XOUT_H) and 0x3C (ACCEL_XOUT_L)
             accelerometer_y = Wire.read() << 8 | Wire.read(); // reading registers: 0x3D (ACCEL_YOUT_H) and 0x3E (ACCEL_YOUT_L)
             accelerometer_z = Wire.read() << 8 | Wire.read(); // reading registers: 0x3F (ACCEL_ZOUT_H) and 0x40 (ACCEL_ZOUT_L)
-            if (abs(accelerometer_x - accelerometer_x_old) + abs(accelerometer_y - accelerometer_y_old) + abs(accelerometer_z - accelerometer_z_old) > schwelle)
+            if (abs(accelerometer_x - accelerometer_x_old) + abs(accelerometer_y - accelerometer_y_old) + abs(accelerometer_z - accelerometer_z_old) > schwelle && stateFehler != 0)
             {
                 //Fehler ausgelöst
-                treffer[anzahl][0] = 0;                                   //Fehler in das Array reinschreiben
-                treffer[anzahl][1] = (millis() - startShooting) / 1000.0; //Zeit in sekunden seit Anfang schießen
-                //Ausgabe des Treffer arrays
-                for (int j = 0; j < 5; j++)
+                if (anzahl > 0)
                 {
-                    Serial.print(treffer[j][0]);
-                    Serial.print(" time: ");
-                    Serial.println(treffer[j][1]);
-                }
-                Serial.println("\n");
-                /////////////////////////////////
-                if (anzahl >= 4)
-                {
-                    //Schicke Schießdatena an den Server
-                    sendShots(treffer);
-                    sendRequest("setAction?mode=id&value=" + String(athleteId) + "&action=stop");
-                    anzahl = 0;
-                    //Zurückgesetzt
-                    for (int j = 0; j < 5; j++)
+                    if (treffer[anzahl - 1][1] > (millis() - startShooting) / 1000.0 - 1.0)
                     {
-                        treffer[j][0] = 0;
-                        treffer[j][1] = -1;
+                        Serial.println("Kein Fehler gegeben!");
+                    }
+                    else
+                    {
+                        Serial.println("Fehler Ausgelöst first");
+                        treffer[anzahl][0] = 0;                                   //Fehler in das Array reinschreiben
+                        treffer[anzahl][1] = (millis() - startShooting) / 1000.0; //Zeit in sekunden seit Anfang schießen
+                        //Ausgabe des Treffer arrays
+                        for (int j = 0; j < 5; j++)
+                        {
+                            Serial.print(treffer[j][0]);
+                            Serial.print(" time: ");
+                            Serial.println(treffer[j][1]);
+                        }
+                        Serial.println("\n");
+                        /////////////////////////////////
+                        if (anzahl >= 4)
+                        {
+                            //Schicke Schießdatena an den Server
+                            sendShots(treffer);
+                            sendRequest("setAction?mode=id&value=" + String(athleteId) + "&action=stop");
+                            servoReset(); //Platten zurückstellen
+                            anzahl = 0;
+                            //Zurückgesetzt
+                            for (int j = 0; j < 5; j++)
+                            {
+                                treffer[j][0] = 0;
+                                treffer[j][1] = -1;
+                            }
+                        }
+                        else
+                        {
+                            //Schusszahl erhöhen
+                            anzahl++;
+                        }
                     }
                 }
                 else
                 {
-                    //Schusszahl erhöhen
-                    anzahl++;
+                    Serial.println("Fehler Ausgelöst second");
+                    treffer[anzahl][0] = 0;                                   //Fehler in das Array reinschreiben
+                    treffer[anzahl][1] = (millis() - startShooting) / 1000.0; //Zeit in sekunden seit Anfang schießen
+                    //Ausgabe des Treffer arrays
+                    for (int j = 0; j < 5; j++)
+                    {
+                        Serial.print(treffer[j][0]);
+                        Serial.print(" time: ");
+                        Serial.println(treffer[j][1]);
+                    }
+                    Serial.println("\n");
+                    /////////////////////////////////
+                    if (anzahl >= 4)
+                    {
+                        //Schicke Schießdatena an den Server
+                        sendShots(treffer);
+                        sendRequest("setAction?mode=id&value=" + String(athleteId) + "&action=stop");
+                        servoReset(); //Platten zurückstellen
+                        anzahl = 0;
+                        //Zurückgesetzt
+                        for (int j = 0; j < 5; j++)
+                        {
+                            treffer[j][0] = 0;
+                            treffer[j][1] = -1;
+                        }
+                    }
+                    else
+                    {
+                        //Schusszahl erhöhen
+                        anzahl++;
+                    }
                 }
             }
+            accelerometer_x_old = accelerometer_x;
+            accelerometer_y_old = accelerometer_y;
+            accelerometer_z_old = accelerometer_z;
             accTime = millis();
+            stateFehler = 1;
         }
         //////////////////////////////////////////Trefferabfragen
         for (int i = 0; i < 5; i++)
@@ -244,38 +301,51 @@ void loop()
             {
                 if (anzahl > 0)
                 {
-                    if (treffer[anzahl - 1][1] > (millis() - startShooting) / 1000.0 - 1.2)
+                    if (treffer[anzahl - 1][1] > (millis() - startShooting) / 1000.0 - 1.0)
                     {
-                        Serial.println("Fehler revidiert!");
+                        Serial.println("Achtung revidiert!");
                         anzahl--;
                     }
                 }
-                //treffer ausgelöst
-                treffer[anzahl][0] = i + 1;                               //Schreibe plattennummer in das Array
-                treffer[anzahl][1] = (millis() - startShooting) / 1000.0; //Zeiteintrag
-                //Ausgabe
-                for (int j = 0; j < 5; j++)
+                int trefferSchon = 0;
+                for (int i = 0; i < 5; i++)
                 {
-                    Serial.print(treffer[j][0]);
-                    Serial.print(" time: ");
-                    Serial.println(treffer[j][1]);
+                    if (treffer[i][0] == anzahl)
+                    {
+                        trefferSchon = 1;
+                        break;
+                    }
                 }
-                Serial.println("\n");
-                if (anzahl >= 4)
+                if (trefferSchon == 0)
                 {
-                    sendShots(treffer);
-                    sendRequest("setAction?mode=id&value=" + String(athleteId) + "&action=stop");
-                    anzahl = 0;
+                    //treffer ausgelöst
+                    treffer[anzahl][0] = i + 1;                               //Schreibe plattennummer in das Array
+                    treffer[anzahl][1] = (millis() - startShooting) / 1000.0; //Zeiteintrag
+                    //Ausgabe
                     for (int j = 0; j < 5; j++)
                     {
-                        treffer[j][0] = 0;
-                        treffer[j][1] = -1;
+                        Serial.print(treffer[j][0]);
+                        Serial.print(" time: ");
+                        Serial.println(treffer[j][1]);
                     }
-                    anzahl = 0;
-                }
-                else
-                {
-                    anzahl++;
+                    Serial.println("\n");
+                    if (anzahl >= 4)
+                    {
+                        sendShots(treffer);
+                        sendRequest("setAction?mode=id&value=" + String(athleteId) + "&action=stop");
+                        servoReset(); //Platten zurückstellen
+                        anzahl = 0;
+                        for (int j = 0; j < 5; j++)
+                        {
+                            treffer[j][0] = 0;
+                            treffer[j][1] = -1;
+                        }
+                        anzahl = 0;
+                    }
+                    else
+                    {
+                        anzahl++;
+                    }
                 }
                 pressTime[i] = millis();
             }
