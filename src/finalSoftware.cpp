@@ -351,7 +351,7 @@ void loop()
                 }
                 else
                 {
-                    Serial.println("Platte bereits umgefallen");
+                    Serial.println("Platte bereits umgefallen, Treffer nicht gewertet");
                 }
                 pressTime[i] = millis();
             }
