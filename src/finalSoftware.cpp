@@ -111,8 +111,8 @@ int sendRequestInt(String request)
 
 int16_t accelerometer_x, accelerometer_y, accelerometer_z; // variables for accelerometer raw data
 int16_t accelerometer_x_old, accelerometer_y_old, accelerometer_z_old;
-int stateFehler = 0;
-int schwelle = 3000; //Auslöseschwelle für einen Fehler
+int stateFehler = 0; //Bereits einmal Accelerometer Werte beschrieben?
+int schwelle = 4000; //Auslöseschwelle für einen Fehler
 int accTime = 0;
 /////////////////////Button Auslösen
 int bef[5];
@@ -199,7 +199,7 @@ void loop()
             } //Höre nicht mehr auf das Schießen
         }
         ///////////////////////////////Fehler
-        if (millis() - accTime > 30)
+        if (millis() - accTime > 30) //Fehlerermittlung
         {
             Wire.beginTransmission(MPU_ADDR);
             Wire.write(0x3B);                                 // starting with register 0x3B (ACCEL_XOUT_H) [MPU-6000 and MPU-6050 Register Map and Descriptions Revision 4.2, p.40]
@@ -215,11 +215,11 @@ void loop()
                 {
                     if (treffer[anzahl - 1][1] > (millis() - startShooting) / 1000.0 - 1.0)
                     {
-                        Serial.println("Kein Fehler gegeben!");
+                        Serial.println("Schuss kurz zuvor gefallen, keinen Fehler gegeben!");//1
                     }
-                    else
-                    {
-                        Serial.println("Fehler Ausgelöst first");
+                    else //Fehler gegeben
+                    { 
+                        Serial.println("Fehler gegeben, weil genug Zeit zum vorherigen Schuss");
                         treffer[anzahl][0] = 0;                                   //Fehler in das Array reinschreiben
                         treffer[anzahl][1] = (millis() - startShooting) / 1000.0; //Zeit in sekunden seit Anfang schießen
                         //Ausgabe des Treffer arrays
@@ -252,9 +252,9 @@ void loop()
                         }
                     }
                 }
-                else
+                else //Fehler gegeben
                 {
-                    Serial.println("Fehler Ausgelöst second");
+                    Serial.println("Fehler gegeben, weil noch kein vorheriger Schuss");
                     treffer[anzahl][0] = 0;                                   //Fehler in das Array reinschreiben
                     treffer[anzahl][1] = (millis() - startShooting) / 1000.0; //Zeit in sekunden seit Anfang schießen
                     //Ausgabe des Treffer arrays
@@ -294,23 +294,24 @@ void loop()
             stateFehler = 1;
         }
         //////////////////////////////////////////Trefferabfragen
-        for (int i = 0; i < 5; i++)
+        for (int i = 0; i < 5; i++) //Trefferermittlung
         {
             bef[i] = digitalRead(schussMap[i]);
-            if ((bef[i] != aft[i]) && (bef[i] == 0) && millis() - pressTime[i] > 1500)
+            if ((bef[i] != aft[i]) && (bef[i] == 0) && millis() - pressTime[i] > 1500)//Verhinderung von Prellen
             {
-                if (anzahl > 0)
+                //treffer ausgelöst
+                if (anzahl > 0)//Kann auch zusammengefasst werden...
                 {
                     if (treffer[anzahl - 1][1] > (millis() - startShooting) / 1000.0 - 1.0)
                     {
-                        Serial.println("Achtung revidiert!");
+                        Serial.println("Fehler revidiert, weil zeitlich zu nah am Treffer");//2
                         anzahl--;
                     }
                 }
-                int trefferSchon = 0;
-                for (int i = 0; i < 5; i++)
+                int trefferSchon = 0; //Untersuchung ob Treffer schon mal angekommen
+                for (int j = 0; j < anzahl; j++)
                 {
-                    if (treffer[i][0] == anzahl)
+                    if (treffer[j][0] == i + 1)
                     {
                         trefferSchon = 1;
                         break;
@@ -318,7 +319,8 @@ void loop()
                 }
                 if (trefferSchon == 0)
                 {
-                    //treffer ausgelöst
+                    //treffer gegeben
+                    Serial.println("Treffer ausgelöst");
                     treffer[anzahl][0] = i + 1;                               //Schreibe plattennummer in das Array
                     treffer[anzahl][1] = (millis() - startShooting) / 1000.0; //Zeiteintrag
                     //Ausgabe
@@ -346,6 +348,10 @@ void loop()
                     {
                         anzahl++;
                     }
+                }
+                else
+                {
+                    Serial.println("Platte bereits umgefallen");
                 }
                 pressTime[i] = millis();
             }
