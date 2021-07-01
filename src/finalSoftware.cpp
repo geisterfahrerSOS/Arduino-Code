@@ -8,6 +8,10 @@
 #include <WiFiManager.h>
 #include <Servo.h>
 
+#include <WiFiClient.h>
+
+WiFiClient wifiClient;
+
 //////////////////////////////////////// Schüsse
 int schussMap[5] = {12, 13, 0, 2, 14};                               //67345                           //12340
 float treffer[5][2] = {{0, -1}, {0, -1}, {0, -1}, {0, -1}, {0, -1}}; //{Platte, Zeit}
@@ -34,7 +38,7 @@ void sendShots(float shots[5][2])
                       String((int)shots[3][0]) + "," + String(shots[3][1]) + "," +
                       String((int)shots[4][0]) + "," + String(shots[4][1]) + "&art=" + art;
         Serial.println(Link);
-        http.begin(Link);                  //Specify request destination
+        http.begin(wifiClient, Link);      //Specify request destination
         int httpCode = http.GET();         //Send the request
         String payload = http.getString(); //Get the response payload
 
@@ -52,7 +56,7 @@ String sendRequest(String request)
         //GET Data
         String Link = "http://" + host + ":80/" + request;
         //Serial.println(Link);
-        http.begin(Link);                  //Specify request destination
+        http.begin(wifiClient, Link);      //Specify request destination
         int httpCode = http.GET();         //Send the request
         String payload = http.getString(); //Get the response payload
 
@@ -78,7 +82,7 @@ int sendRequestInt(String request)
         //GET Data
         String Link = "http://" + host + ":80/" + request;
         Serial.println(Link);
-        http.begin(Link);                  //Specify request destination
+        http.begin(wifiClient, Link);      //Specify request destination
         int httpCode = http.GET();         //Send the request
         String payload = http.getString(); //Get the response payload
 
@@ -96,7 +100,32 @@ int sendRequestInt(String request)
         }
     }
 }
-
+#define SERVO 16
+Servo myServo;
+void servoReset()
+{
+    myServo.write(0);
+    delay(1000);
+    myServo.write(120);
+    delay(1000);
+}
+void sendeDaten()
+{
+    if (millis() - startShooting > treffer[4][1] + 1.0)
+    {
+        Serial.println((millis()-startShooting)/1000.0);
+        sendShots(treffer);
+        sendRequest("setAction?mode=id&value=" + String(athleteId) + "&action=stop");
+        servoReset(); //Platten zurückstellen
+        anzahl = 0;
+        //Zurückgesetzt
+        for (int j = 0; j < 5; j++)
+        {
+            treffer[j][0] = 0;
+            treffer[j][1] = -1;
+        }
+    }
+}
 //////////////////////////////Wlan Verbindung
 //#define WIFI_SSID "PG6WLAN"
 //#define WIFI_PASS "Turbolader24$$"
@@ -112,22 +141,14 @@ int sendRequestInt(String request)
 int16_t accelerometer_x, accelerometer_y, accelerometer_z; // variables for accelerometer raw data
 int16_t accelerometer_x_old, accelerometer_y_old, accelerometer_z_old;
 int stateFehler = 0; //Bereits einmal Accelerometer Werte beschrieben?
-int schwelle = 4000; //Auslöseschwelle für einen Fehler
+int schwelle = 2000; //Auslöseschwelle für einen Fehler vprher 4000
 int accTime = 0;
 /////////////////////Button Auslösen
 int bef[5];
 int aft[5];
 int pressTime[5] = {0, 0, 0, 0, 0};
 ///////////////////Servo
-#define SERVO 16
-Servo myServo;
-void servoReset()
-{
-    myServo.write(0);
-    delay(1000);
-    myServo.write(120);
-    delay(1000);
-}
+
 void setup()
 {
     Serial.begin(9600); // The baudrate of Serial monitor is set in 9600
@@ -137,7 +158,7 @@ void setup()
     }
     /////////////////////Servo init
     myServo.attach(SERVO);
-    myServo.write(120);
+    servoReset();
     //Begin I2C
     Wire.begin();
     Wire.beginTransmission(MPU_ADDR); // Begins a transmission to the I2C slave (GY-521 board)
@@ -199,7 +220,7 @@ void loop()
             } //Höre nicht mehr auf das Schießen
         }
         ///////////////////////////////Fehler
-        if (millis() - accTime > 30) //Fehlerermittlung
+        if (millis() - accTime > 8) //Fehlerermittlung
         {
             Wire.beginTransmission(MPU_ADDR);
             Wire.write(0x3B);                                 // starting with register 0x3B (ACCEL_XOUT_H) [MPU-6000 and MPU-6050 Register Map and Descriptions Revision 4.2, p.40]
@@ -215,10 +236,10 @@ void loop()
                 {
                     if (treffer[anzahl - 1][1] > (millis() - startShooting) / 1000.0 - 1.0)
                     {
-                        Serial.println("Schuss kurz zuvor gefallen, keinen Fehler gegeben!");//1
+                        Serial.println("Schuss kurz zuvor gefallen, keinen Fehler gegeben!"); //1
                     }
                     else //Fehler gegeben
-                    { 
+                    {
                         Serial.println("Fehler gegeben, weil genug Zeit zum vorherigen Schuss");
                         treffer[anzahl][0] = 0;                                   //Fehler in das Array reinschreiben
                         treffer[anzahl][1] = (millis() - startShooting) / 1000.0; //Zeit in sekunden seit Anfang schießen
@@ -233,17 +254,8 @@ void loop()
                         /////////////////////////////////
                         if (anzahl >= 4)
                         {
-                            //Schicke Schießdatena an den Server
-                            sendShots(treffer);
-                            sendRequest("setAction?mode=id&value=" + String(athleteId) + "&action=stop");
-                            servoReset(); //Platten zurückstellen
-                            anzahl = 0;
-                            //Zurückgesetzt
-                            for (int j = 0; j < 5; j++)
-                            {
-                                treffer[j][0] = 0;
-                                treffer[j][1] = -1;
-                            }
+                            //Schicke Schießdaten an den Server
+                            sendeDaten();
                         }
                         else
                         {
@@ -269,16 +281,7 @@ void loop()
                     if (anzahl >= 4)
                     {
                         //Schicke Schießdatena an den Server
-                        sendShots(treffer);
-                        sendRequest("setAction?mode=id&value=" + String(athleteId) + "&action=stop");
-                        servoReset(); //Platten zurückstellen
-                        anzahl = 0;
-                        //Zurückgesetzt
-                        for (int j = 0; j < 5; j++)
-                        {
-                            treffer[j][0] = 0;
-                            treffer[j][1] = -1;
-                        }
+                        sendeDaten();
                     }
                     else
                     {
@@ -297,14 +300,15 @@ void loop()
         for (int i = 0; i < 5; i++) //Trefferermittlung
         {
             bef[i] = digitalRead(schussMap[i]);
-            if ((bef[i] != aft[i]) && (bef[i] == 0) && millis() - pressTime[i] > 1500)//Verhinderung von Prellen
+            if ((bef[i] != aft[i]) && (bef[i] == 0) && millis() - pressTime[i] > 1500) //Verhinderung von Prellen
             {
                 //treffer ausgelöst
-                if (anzahl > 0)//Kann auch zusammengefasst werden...
+                Serial.println("möglicher Treffer");
+                if (anzahl > 0) //Kann auch zusammengefasst werden...
                 {
                     if (treffer[anzahl - 1][1] > (millis() - startShooting) / 1000.0 - 1.0)
                     {
-                        Serial.println("Fehler revidiert, weil zeitlich zu nah am Treffer");//2
+                        Serial.println("Fehler revidiert, weil zeitlich zu nah am Treffer"); //2
                         anzahl--;
                     }
                 }
@@ -333,16 +337,7 @@ void loop()
                     Serial.println("\n");
                     if (anzahl >= 4)
                     {
-                        sendShots(treffer);
-                        sendRequest("setAction?mode=id&value=" + String(athleteId) + "&action=stop");
-                        servoReset(); //Platten zurückstellen
-                        anzahl = 0;
-                        for (int j = 0; j < 5; j++)
-                        {
-                            treffer[j][0] = 0;
-                            treffer[j][1] = -1;
-                        }
-                        anzahl = 0;
+                        sendeDaten();
                     }
                     else
                     {
